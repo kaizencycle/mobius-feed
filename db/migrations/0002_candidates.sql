@@ -90,38 +90,77 @@ CREATE TRIGGER candidates_set_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at();
 
--- The FK above only guarantees signal_id references *some* row in signals —
--- it doesn't enforce the documented 1:1 handoff ("created when a Signal
--- reaches NORMALIZED"). A cross-table rule can't be expressed as a CHECK
--- constraint in Postgres, so enforce it the same way as the other
--- structural rules in this PR: a trigger that looks up the parent and
--- rejects the write if it isn't NORMALIZED yet.
---
--- signal_id is also made outright immutable once set, not merely
--- re-validated on change: nothing in the documented design ever repoints a
--- candidate to a different signal, and allowing it — even to another
--- NORMALIZED signal — would silently orphan the original signal (left
--- NORMALIZED with no candidate, contradicting the 1:1 handoff from the
--- other direction). Removing the operation entirely is simpler and safer
--- than trying to validate every possible repoint target.
-CREATE OR REPLACE FUNCTION enforce_candidate_signal_id_rules() RETURNS trigger AS $$
-DECLARE
-    parent_status text;
+-- signal_id is outright immutable once set: nothing in the documented
+-- design ever repoints a candidate to a different signal, and allowing it
+-- — even to another NORMALIZED signal — would silently orphan the
+-- original signal (left NORMALIZED with no candidate, contradicting the
+-- 1:1 handoff from the other direction). This check is synchronous
+-- (ordinary BEFORE trigger): it depends only on this row's own history,
+-- not on anything else changing later in the transaction.
+CREATE OR REPLACE FUNCTION enforce_candidate_signal_id_immutable() RETURNS trigger AS $$
 BEGIN
-    IF TG_OP = 'UPDATE' AND NEW.signal_id IS DISTINCT FROM OLD.signal_id THEN
+    IF NEW.signal_id IS DISTINCT FROM OLD.signal_id THEN
         RAISE EXCEPTION 'candidates.signal_id is immutable once set';
-    END IF;
-    IF TG_OP = 'INSERT' THEN
-        SELECT status INTO parent_status FROM signals WHERE signal_id = NEW.signal_id;
-        IF parent_status IS DISTINCT FROM 'NORMALIZED' THEN
-            RAISE EXCEPTION 'candidates.signal_id must reference a signal with status = NORMALIZED (found %)', parent_status;
-        END IF;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER candidates_signal_id_rules
-    BEFORE INSERT OR UPDATE ON candidates
+CREATE TRIGGER candidates_signal_id_immutable
+    BEFORE UPDATE ON candidates
     FOR EACH ROW
-    EXECUTE FUNCTION enforce_candidate_signal_id_rules();
+    EXECUTE FUNCTION enforce_candidate_signal_id_immutable();
+
+-- The FK above only guarantees signal_id references *some* row in signals —
+-- it doesn't enforce the documented 1:1 handoff ("a candidate exists iff
+-- its signal is NORMALIZED"). A cross-table rule can't be expressed as a
+-- CHECK constraint in Postgres, so it needs a trigger — but a same-instant
+-- BEFORE trigger creates an impossible ordering: this check requires the
+-- signal to already be NORMALIZED before the candidate can be inserted,
+-- while the mirror-image check on signals (below) requires a candidate to
+-- already exist before the signal can become NORMALIZED. Enforced
+-- immediately, those two rules can never both be satisfied — there is no
+-- legal first move. Both checks are therefore DEFERRABLE INITIALLY
+-- DEFERRED constraint triggers, which Postgres only evaluates at
+-- transaction commit: a single transaction can write the signal and its
+-- candidate in either order, and only the final, post-commit state needs
+-- to satisfy both invariants together.
+CREATE OR REPLACE FUNCTION enforce_candidate_signal_normalized() RETURNS trigger AS $$
+DECLARE
+    parent_status text;
+BEGIN
+    SELECT status INTO parent_status FROM signals WHERE signal_id = NEW.signal_id;
+    IF parent_status IS DISTINCT FROM 'NORMALIZED' THEN
+        RAISE EXCEPTION 'candidates.signal_id must reference a signal with status = NORMALIZED (found %)', parent_status;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE CONSTRAINT TRIGGER candidates_require_normalized_signal
+    AFTER INSERT ON candidates
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION enforce_candidate_signal_normalized();
+
+-- Mirror image of the check above, attached to `signals` (candidates must
+-- already exist as a table by this point in the migration order, which is
+-- why this trigger is defined here in 0002 rather than in 0001_signals.sql
+-- even though it fires on the signals table): a signal cannot commit as
+-- NORMALIZED unless a matching candidates row exists by commit time.
+CREATE OR REPLACE FUNCTION enforce_signal_normalized_requires_candidate() RETURNS trigger AS $$
+BEGIN
+    IF NEW.status = 'NORMALIZED' AND NOT EXISTS (
+        SELECT 1 FROM candidates WHERE signal_id = NEW.signal_id
+    ) THEN
+        RAISE EXCEPTION 'signals.status = NORMALIZED requires a matching candidates row for signal_id %', NEW.signal_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE CONSTRAINT TRIGGER signals_normalized_requires_candidate
+    AFTER INSERT OR UPDATE ON signals
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION enforce_signal_normalized_requires_candidate();

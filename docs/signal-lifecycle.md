@@ -129,6 +129,26 @@ observation in its lifecycle" for a candidate reads
 `candidates.review_state`; `signals.status` only answers "has this
 produced a candidate yet."
 
+**Enforcing the handoff without a deadlock.** The 1:1 handoff is a
+bidirectional invariant — a candidate must not exist for a non-`NORMALIZED`
+signal, *and* a signal must not be `NORMALIZED` without a candidate — but
+enforcing both halves as ordinary (immediate) triggers is impossible: the
+candidate-side check requires the signal to already be `NORMALIZED` before
+the candidate can be inserted, while the signal-side check would require
+the candidate to already exist before the signal can become `NORMALIZED`.
+Neither side can legally go first. Both checks are therefore
+`DEFERRABLE INITIALLY DEFERRED` constraint triggers
+(`enforce_candidate_signal_normalized()` on `candidates`,
+`enforce_signal_normalized_requires_candidate()` on `signals`), which
+Postgres only evaluates at transaction commit — a single transaction can
+write the signal and its candidate in either order, and only the final,
+post-commit state has to satisfy both invariants together. Verified
+against Postgres 16: both orderings (normalize-then-create-candidate,
+create-candidate-then-normalize) commit successfully within one
+transaction; normalizing without ever creating a candidate, or creating a
+candidate for a signal that never gets normalized in the same transaction,
+both fail at commit.
+
 ## 4. Candidate object
 
 `schemas/candidate.schema.json` / `db/migrations/0002_candidates.sql`.
@@ -136,7 +156,7 @@ produced a candidate yet."
 | Field | Notes |
 |---|---|
 | `candidate_id` | uuid PK. |
-| `signal_id` | FK to `signals`, `UNIQUE` — one candidate per signal, and immutable once set. The FK alone only guarantees the parent row exists, not that it's `NORMALIZED`; `enforce_candidate_signal_id_rules()` (a `BEFORE INSERT OR UPDATE` trigger, since Postgres CHECK constraints can't do cross-table lookups) rejects a candidate whose parent signal isn't `NORMALIZED` yet on insert, and rejects *any* change to `signal_id` thereafter — repointing to a different signal, even a `NORMALIZED` one, isn't a documented operation and would silently orphan the original signal. |
+| `signal_id` | FK to `signals`, `UNIQUE` — one candidate per signal, and immutable once set (`enforce_candidate_signal_id_immutable()`, an ordinary `BEFORE UPDATE` trigger — repointing to a different signal isn't a documented operation and would silently orphan the original). The FK alone only guarantees the parent row exists, not that it's `NORMALIZED`; that's checked by `enforce_candidate_signal_normalized()`, a *deferred* constraint trigger — see §3's "Enforcing the handoff without a deadlock" for why it can't be an ordinary immediate trigger. |
 | `review_state` | See §3. |
 | `candidate_patterns` | Scored list, `[{"name", "confidence"}]` — **never** a bare `pattern` field. Enforced at the DB level by `candidate_patterns_valid()`, which checks the *full* shape (array of objects, each with exactly a string `name` and a `confidence` in `[0,1]`, no other keys) — not just top-level array-ness, so a bare string, an empty object, an out-of-range score, or an extra key is rejected too, matching `schemas/candidate.schema.json`'s `additionalProperties: false` exactly, not just its required fields. |
 | `confidence` | Denormalized top-line score (e.g. the best `candidate_patterns` entry), kept only for review-surface sorting/filtering. `candidate_patterns` stays authoritative — this is a projection of it, not an independent judgment. |
