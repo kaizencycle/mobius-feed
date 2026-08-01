@@ -8,6 +8,36 @@
 -- word as its own starting point and evolves independently from there. See
 -- ../../docs/signal-lifecycle.md.
 
+-- Always a scored list, never a bare `pattern` field (ADR-001 Decision 4):
+-- validates the full shape (array of {name: string, confidence: 0..1}),
+-- not just top-level array-ness — a bare string, an empty object, or an
+-- out-of-range confidence is rejected here, matching what
+-- schemas/candidate.schema.json already requires at the JSON Schema level.
+CREATE OR REPLACE FUNCTION candidate_patterns_valid(patterns jsonb) RETURNS boolean AS $$
+DECLARE
+    elem jsonb;
+BEGIN
+    IF jsonb_typeof(patterns) IS DISTINCT FROM 'array' THEN
+        RETURN false;
+    END IF;
+    FOR elem IN SELECT value FROM jsonb_array_elements(patterns) LOOP
+        IF jsonb_typeof(elem) IS DISTINCT FROM 'object' THEN
+            RETURN false;
+        END IF;
+        IF NOT (elem ? 'name') OR jsonb_typeof(elem->'name') IS DISTINCT FROM 'string' THEN
+            RETURN false;
+        END IF;
+        IF NOT (elem ? 'confidence') OR jsonb_typeof(elem->'confidence') IS DISTINCT FROM 'number' THEN
+            RETURN false;
+        END IF;
+        IF (elem->>'confidence')::numeric < 0 OR (elem->>'confidence')::numeric > 1 THEN
+            RETURN false;
+        END IF;
+    END LOOP;
+    RETURN true;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 CREATE TABLE candidates (
     candidate_id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     signal_id           uuid NOT NULL REFERENCES signals (signal_id),
@@ -16,11 +46,9 @@ CREATE TABLE candidates (
                                 'NORMALIZED', 'REVIEWED', 'PROMOTED',
                                 'DISMISSED', 'ARCHIVED'
                             )),
-    -- Always a scored list, never a bare `pattern` field (ADR-001 Decision 4).
-    -- The jsonb_typeof check enforces "always an array" at the schema level.
     candidate_patterns  jsonb NOT NULL DEFAULT '[]'::jsonb
-                            CONSTRAINT candidate_patterns_is_array
-                            CHECK (jsonb_typeof(candidate_patterns) = 'array'),
+                            CONSTRAINT candidate_patterns_is_valid
+                            CHECK (candidate_patterns_valid(candidate_patterns)),
     -- Denormalized top-line score (e.g. the best candidate_patterns entry),
     -- kept for review-surface sorting. candidate_patterns stays authoritative.
     confidence          numeric(4, 3)
@@ -36,7 +64,8 @@ CREATE TABLE candidates (
     CONSTRAINT candidates_signal_id_unique UNIQUE (signal_id)
 );
 
-CREATE INDEX candidates_signal_id_idx ON candidates (signal_id);
+-- No separate index on signal_id: candidates_signal_id_unique above
+-- already creates one as a side effect of the UNIQUE constraint.
 CREATE INDEX candidates_review_state_idx ON candidates (review_state);
 
 -- candidates is the one mutable "current state" table in this schema

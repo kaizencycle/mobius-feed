@@ -38,10 +38,10 @@ Reality → Signal → Candidate → Review → Promotion → EPICON
 | `url` | Required — canonical link, and part of the dedup hash (§2). |
 | `published_at` | Source's own timestamp. |
 | `retrieved_at` | When mobius-feed polled it. |
-| `hash` | Dedup key — see §2 for the exact spec. |
+| `hash` | Dedup key — see §2 for the exact spec. A generated column (`GENERATED ALWAYS AS ... STORED`), computed by Postgres from `source_type`/`source`/`url` at write time — not accepted as caller-supplied text, so it can never drift from the inputs it claims to represent. |
 | `normalizer_version` | Version of the *specific adapter* that produced this row. |
 | `schema_version` | Version of *this canonical schema*, distinct from `normalizer_version` — bumped when the Signal table shape itself changes, not when a source's parsing logic changes. Lets historical rows self-declare which schema revision wrote them. |
-| `status` | `NEW \| NORMALIZED` only — see §3. |
+| `status` | `NEW \| NORMALIZED` only — see §3. One-way in practice: a `BEFORE UPDATE` trigger (`enforce_signal_status_forward()`) rejects any attempt to move a row back from `NORMALIZED` to `NEW`, so "immutable once NORMALIZED" is enforced, not just documented. |
 | `created_at` | Row creation time. |
 
 Deliberately small. No `candidate_patterns`, no `review_state` on this
@@ -55,10 +55,22 @@ verbatim — it now carries a short addendum pointing here instead.
 
 ## 2. Hash — the dedup key, defined exactly
 
-**`hash = SHA-256(source_type + "|" + source + "|" + url)`**, computed over
-the raw `source_type`, `source`, and `url` strings joined with a literal
-pipe, no normalization (no case-folding, no trimming) beyond what the
-normalizer already applies when populating those fields.
+**`hash = SHA-256(SHA-256(source_type) || SHA-256(source) || SHA-256(url))`**,
+where `||` is raw byte concatenation of the three inner 32-byte digests
+(not their hex strings), and the outer `SHA-256` result is hex-encoded into
+the `hash` column. No normalization (no case-folding, no trimming) beyond
+what the normalizer already applies when populating `source_type`,
+`source`, and `url`.
+
+An earlier version of this spec joined the three fields with a literal
+`"|"` delimiter before hashing them — flagged during review as ambiguous:
+since `url` values can themselves contain a `|`, `source="a", url="b|c"`
+and `source="a|b", url="c"` would hash identically, silently colliding two
+distinct signals. Hashing each field independently first, then
+concatenating only the fixed-length 32-byte digests, removes the ambiguity
+entirely: no split of the three inputs can produce the same triple of
+inner digests unless the field values were actually identical, since each
+inner digest's length no longer depends on its input's content.
 
 Deliberately **excludes** `headline` and `published_at`:
 
@@ -126,7 +138,7 @@ produced a candidate yet."
 | `candidate_id` | uuid PK. |
 | `signal_id` | FK to `signals`, `UNIQUE` — one candidate per signal. |
 | `review_state` | See §3. |
-| `candidate_patterns` | Scored list, `[{"name", "confidence"}]` — **never** a bare `pattern` field. Enforced at the DB level: `candidate_patterns_is_array` CHECK constraint rejects any non-array value, so a future bug can't silently collapse suggestions into a single assignment. |
+| `candidate_patterns` | Scored list, `[{"name", "confidence"}]` — **never** a bare `pattern` field. Enforced at the DB level by `candidate_patterns_valid()`, which checks the *full* shape (array of objects, each with a string `name` and a `confidence` in `[0,1]`) — not just top-level array-ness, so a bare string, an empty object, or an out-of-range score is rejected too, matching `schemas/candidate.schema.json` exactly. |
 | `confidence` | Denormalized top-line score (e.g. the best `candidate_patterns` entry), kept only for review-surface sorting/filtering. `candidate_patterns` stays authoritative — this is a projection of it, not an independent judgment. |
 | `review_owner`, `review_notes` | Current-state snapshot, denormalized for fast reads without joining `reviews`. `reviews` (§5) is the authoritative history. |
 | `created_at`, `updated_at` | `updated_at` is trigger-maintained (`set_updated_at()`), bumped on every mutation. |
