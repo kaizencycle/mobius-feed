@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kaizencycle/mobius-feed/schemas/signal.schema.json",
+  "title": "Signal",
+  "description": "Frozen per ADR-001 (Decision 4). candidate_patterns is always a scored list, never a bare `pattern` field — this preserves editorial judgment at review.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "signal_id",
+    "source",
+    "retrieved_at",
+    "published_at",
+    "normalizer_version",
+    "candidate_patterns",
+    "review_state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "description": "Stable unique identifier for this signal."
+    },
+    "source": {
+      "type": "string",
+      "description": "Origin adapter, e.g. NASA, GitHub, SEC, arXiv, RSS feed name."
+    },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When mobius-feed polled/ingested this signal."
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the source published the underlying content."
+    },
+    "normalizer_version": {
+      "type": "string",
+      "description": "Version of the normalizer that produced this record. Lets the classifier be re-run against historical signals without losing original ingestion history."
+    },
+    "candidate_patterns": {
+      "type": "array",
+      "description": "Scored list of candidate pattern matches. Never collapse to a single assigned value.",
+      "items": {
+        "type": "object",
+        "required": ["name", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Pattern name, matched against the Patterns database (15 definitions)."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "review_state": {
+      "type": "string",
+      "description": "Queue lifecycle state.",
+      "enum": ["NEW", "NORMALIZED", "REVIEWED", "PROMOTED", "DISMISSED", "ARCHIVED"]
+    }
+  }
+}
