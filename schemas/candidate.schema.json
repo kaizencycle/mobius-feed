@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kaizencycle/mobius-feed/schemas/candidate.schema.json",
+  "title": "Candidate",
+  "description": "The reviewable unit (PR-002). Created 1:1 when a Signal reaches status=NORMALIZED. Carries pattern suggestions and the review/promotion lifecycle that Signal itself does not. candidate_patterns is always a scored list, never a bare `pattern` field — the classifier suggests, humans decide. See docs/signal-lifecycle.md.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "signal_id",
+    "review_state",
+    "candidate_patterns",
+    "created_at",
+    "updated_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable unique identifier for this candidate."
+    },
+    "signal_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The Signal this candidate was created from. One candidate per signal."
+    },
+    "review_state": {
+      "type": "string",
+      "description": "Candidate-level lifecycle state. Starts at NORMALIZED (mirrors the parent Signal's status at the moment of candidate creation), then advances independently of Signal.status. See docs/signal-lifecycle.md for why NORMALIZED appears on both objects and why that's intentional, not duplication.",
+      "enum": ["NORMALIZED", "REVIEWED", "PROMOTED", "DISMISSED", "ARCHIVED"]
+    },
+    "candidate_patterns": {
+      "type": "array",
+      "description": "Scored list of candidate pattern matches. Never collapse to a single assigned value — this is what preserves editorial judgment at review.",
+      "items": {
+        "type": "object",
+        "required": ["name", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Pattern name, matched against the Patterns database (15 definitions)."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Denormalized top-line confidence (e.g. the highest-scoring candidate_patterns entry), kept for review-surface sorting/filtering. candidate_patterns remains the authoritative scored list; this is a convenience projection of it, not a separate judgment."
+    },
+    "review_owner": {
+      "type": ["string", "null"],
+      "description": "Current reviewer identity (e.g. 'human:alice', 'atlas-v1'), denormalized for fast reads. The append-only reviews table is the authoritative history of every review event, not this field."
+    },
+    "review_notes": {
+      "type": ["string", "null"],
+      "description": "Current/latest review note, denormalized. See the reviews table for the full note history."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last time this row's mutable fields (review_state, review_owner, review_notes, confidence) changed."
+    }
+  }
+}
