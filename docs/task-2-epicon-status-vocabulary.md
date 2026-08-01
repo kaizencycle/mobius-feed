@@ -50,15 +50,21 @@ candidate's intent envelope is *well-formed*, not that ATLAS/ZEUS/a human
 have *agreed with its claim*. ADR-001 Decision 2 defines Tier 2 as requiring
 all three (ATLAS + ZEUS + Human). So:
 
-- A candidate can pass Guard structurally and still sit in mobius-feed's
-  `review/` surface pending ATLAS/ZEUS/Human sign-off — that candidate is
+- A `NORMALIZED` candidate sits in mobius-feed's `review/` surface for
+  ATLAS/ZEUS/Human sign-off *before* Guard is ever called — Guard checks
+  structural well-formedness, not truth, so there's no reason to invoke it
+  before a human has actually looked at the claim. A candidate here is
   Tier 1, not yet Tier 2, and does not exist in Notion yet.
-- Only once *both* Guard PASS and the review consensus are satisfied does
-  mobius-feed call `PROMOTED`, and only `PROMOTED` candidates get written
-  through to a Notion `Attested` row (via `kaizencycle/epicon` → Civic
-  Protocol Core → whatever syncs canon into Notion — mobius-feed does not
-  write Notion directly, consistent with the repo boundary against
-  publishing content).
+- Review reaching a decision is what moves the candidate to `REVIEWED` (see
+  `../queue/README.md` — `REVIEWED` records that a decision was made,
+  approve or reject, not approval alone). Only an *approved* `REVIEWED`
+  candidate is then submitted to `kaizencycle/epicon`, and only a Guard
+  `PASS`/`PASS_WITH_BACKFILL` completes the `REVIEWED → PROMOTED`
+  transition ([Task 1](./task-1-epicon-attestation-interface.md)). Only
+  `PROMOTED` candidates get written through to a Notion `Attested` row (via
+  `kaizencycle/epicon` → Civic Protocol Core → whatever syncs canon into
+  Notion — mobius-feed does not write Notion directly, consistent with the
+  repo boundary against publishing content).
 
 ## `Draft` — proposed definition
 
