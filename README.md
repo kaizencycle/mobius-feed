@@ -34,8 +34,14 @@ of scope for this repo.
 
 ## Source of truth
 
+Architecture decision record maintained in Notion. Operational source of
+truth for this repository. Canonical EPICON records remain governed by the
+EPICON attestation pipeline (`kaizencycle/epicon` → Civic Protocol Core),
+not by Notion.
+
 [ADR-001 — mobius-feed Architecture](https://app.notion.com/p/3ae93f6e20a1813692a6c731e003468b)
-(Notion, under Mobius Command Center) is canon. [`docs/ADR-001-reference.md`](docs/ADR-001-reference.md)
+(Notion, under Mobius Command Center) is where this repo's architecture
+decisions are recorded. [`docs/ADR-001-reference.md`](docs/ADR-001-reference.md)
 mirrors it for offline reading.
 
 ## Status (cycle C-390)
@@ -45,6 +51,9 @@ ADR-001 is Proposed, blocked on three items — resolved this cycle:
 1. [`docs/task-1-epicon-attestation-interface.md`](docs/task-1-epicon-attestation-interface.md) — kaizencycle/epicon attestation interface
 2. [`docs/task-2-epicon-status-vocabulary.md`](docs/task-2-epicon-status-vocabulary.md) — EPICON status vocabulary mapping
 3. [`docs/task-3-hosting-decision.md`](docs/task-3-hosting-decision.md) — hosting target
+
+See [`docs/lifecycle.md`](docs/lifecycle.md) for the candidate state machine
+end to end, from `NEW` through `ATTESTED`.
 
 Items that couldn't be fully closed this cycle are tracked in
 [`docs/open-questions.md`](docs/open-questions.md).
