@@ -12,9 +12,12 @@ way (approved or rejected); it forks from there:
 
 - **Approved** → `PROMOTED` → `ATTESTED` → `ARCHIVED` — the happy path.
   `NEW → NORMALIZED → REVIEWED → PROMOTED` are mobius-feed's own queue
-  states (`queue/`), backed by Postgres — matching the enum in
-  `schemas/signal.schema.json` exactly. `ATTESTED` happens outside this
-  repo, via `kaizencycle/epicon`'s Guard (see
+  states (`queue/`), backed by Postgres — split across
+  `schemas/signal.schema.json` (`NEW`/`NORMALIZED`, on `Signal.status`) and
+  `schemas/candidate.schema.json` (`NORMALIZED` through the fork, on
+  `Candidate.review_state`); see [`signal-lifecycle.md`](./signal-lifecycle.md)
+  §3 for why. `ATTESTED` happens outside this repo, via
+  `kaizencycle/epicon`'s Guard (see
   [`task-1-epicon-attestation-interface.md`](./task-1-epicon-attestation-interface.md))
   — mobius-feed submits, it does not attest. The `REVIEWED → PROMOTED`
   transition itself *is* the Guard call: an approved `REVIEWED` candidate is
@@ -28,4 +31,6 @@ way (approved or rejected); it forks from there:
   the same terminal state; only the path there differs.
 
 See [`../queue/README.md`](../queue/README.md) for the queue-level detail
-behind each state.
+behind each state, and [`signal-lifecycle.md`](./signal-lifecycle.md) for
+the PR-002 schema that implements it — including exactly which states live
+on `signals.status` versus `candidates.review_state`.

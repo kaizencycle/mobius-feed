@@ -30,4 +30,11 @@ NEW → NORMALIZED → REVIEWED ─┬─→ PROMOTED → ATTESTED* → ARCHIVED
   as from further along the chain once `PROMOTED`/attested activity has
   concluded — see `../docs/lifecycle.md`, which shows both paths.
 
-Scaffold only this cycle — no implementation yet.
+This conceptual chain is now split across two tables at the DB level
+(`signals.status` covers `NEW/NORMALIZED`; `candidates.review_state` picks
+up from `NORMALIZED` through the fork) — see
+[`../docs/signal-lifecycle.md`](../docs/signal-lifecycle.md) §3 for exactly
+why the split falls where it does, and
+[`../db/README.md`](../db/README.md) for the migrations.
+
+Schema implemented (PR-002); no ingestion or worker code yet.

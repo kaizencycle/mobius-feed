@@ -2,66 +2,82 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/kaizencycle/mobius-feed/schemas/signal.schema.json",
   "title": "Signal",
-  "description": "Frozen per ADR-001 (Decision 4). candidate_patterns is always a scored list, never a bare `pattern` field — this preserves editorial judgment at review.",
-  "version": "1.0.0",
+  "description": "The canonical, source-agnostic observation object (PR-002). An observation, not an interpretation — carries no pattern or review data. Every source adapter (rss/github/sec/nasa/arxiv) normalizes into exactly this shape. Pattern scoring and review lifecycle live on the separate Candidate object (candidate.schema.json) once a Signal is normalized. See docs/signal-lifecycle.md for the full chain and the Signal.status vs Candidate.review_state split.",
+  "version": "2.0.0",
   "type": "object",
   "required": [
     "signal_id",
     "source",
-    "retrieved_at",
+    "source_type",
+    "headline",
+    "url",
     "published_at",
+    "retrieved_at",
+    "hash",
     "normalizer_version",
-    "candidate_patterns",
-    "review_state"
+    "schema_version",
+    "status",
+    "created_at"
   ],
   "additionalProperties": false,
   "properties": {
     "signal_id": {
       "type": "string",
+      "format": "uuid",
       "description": "Stable unique identifier for this signal."
     },
     "source": {
       "type": "string",
-      "description": "Origin adapter, e.g. NASA, GitHub, SEC, arXiv, RSS feed name."
+      "description": "Specific origin within source_type, e.g. a named RSS feed, a tracked GitHub repo, a CIK/ticker, a NASA feed name."
     },
-    "retrieved_at": {
+    "source_type": {
       "type": "string",
-      "format": "date-time",
-      "description": "When mobius-feed polled/ingested this signal."
+      "description": "Adapter family that produced this signal, matching sources/*: rss | github | sec | nasa | arxiv."
+    },
+    "headline": {
+      "type": "string",
+      "description": "Short human-readable title of the observed content."
+    },
+    "summary": {
+      "type": ["string", "null"],
+      "description": "Optional longer excerpt/description, if the source provides one."
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical link to the source content. Part of the dedup hash input — see docs/signal-lifecycle.md."
     },
     "published_at": {
       "type": "string",
       "format": "date-time",
       "description": "When the source published the underlying content."
     },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When mobius-feed polled/ingested this signal."
+    },
+    "hash": {
+      "type": "string",
+      "description": "SHA-256 of `source_type|source|url` (see docs/signal-lifecycle.md for the exact spec). The dedup key. Deliberately excludes headline/published_at so a corrected headline or republish timestamp doesn't mint a new signal."
+    },
     "normalizer_version": {
       "type": "string",
-      "description": "Version of the normalizer that produced this record. Lets the classifier be re-run against historical signals without losing original ingestion history."
+      "description": "Version of the specific source normalizer that produced this record. Lets the classifier be re-run against historical signals without losing original ingestion history."
     },
-    "candidate_patterns": {
-      "type": "array",
-      "description": "Scored list of candidate pattern matches. Never collapse to a single assigned value.",
-      "items": {
-        "type": "object",
-        "required": ["name", "confidence"],
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Pattern name, matched against the Patterns database (15 definitions)."
-          },
-          "confidence": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          }
-        }
-      }
-    },
-    "review_state": {
+    "schema_version": {
       "type": "string",
-      "description": "Queue lifecycle state.",
-      "enum": ["NEW", "NORMALIZED", "REVIEWED", "PROMOTED", "DISMISSED", "ARCHIVED"]
+      "description": "Version of this canonical Signal schema itself, distinct from normalizer_version. Lets historical rows self-declare which schema revision they were written under."
+    },
+    "status": {
+      "type": "string",
+      "description": "Signal-level status only: has this raw signal been normalized into a Candidate yet? Immutable once NORMALIZED. All subsequent review/promotion lifecycle lives on Candidate.review_state, not here — see docs/signal-lifecycle.md.",
+      "enum": ["NEW", "NORMALIZED"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Row creation timestamp."
     }
   }
 }
