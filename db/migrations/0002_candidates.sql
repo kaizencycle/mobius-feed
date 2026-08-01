@@ -96,19 +96,32 @@ CREATE TRIGGER candidates_set_updated_at
 -- constraint in Postgres, so enforce it the same way as the other
 -- structural rules in this PR: a trigger that looks up the parent and
 -- rejects the write if it isn't NORMALIZED yet.
-CREATE OR REPLACE FUNCTION enforce_candidate_requires_normalized_signal() RETURNS trigger AS $$
+--
+-- signal_id is also made outright immutable once set, not merely
+-- re-validated on change: nothing in the documented design ever repoints a
+-- candidate to a different signal, and allowing it — even to another
+-- NORMALIZED signal — would silently orphan the original signal (left
+-- NORMALIZED with no candidate, contradicting the 1:1 handoff from the
+-- other direction). Removing the operation entirely is simpler and safer
+-- than trying to validate every possible repoint target.
+CREATE OR REPLACE FUNCTION enforce_candidate_signal_id_rules() RETURNS trigger AS $$
 DECLARE
     parent_status text;
 BEGIN
-    SELECT status INTO parent_status FROM signals WHERE signal_id = NEW.signal_id;
-    IF parent_status IS DISTINCT FROM 'NORMALIZED' THEN
-        RAISE EXCEPTION 'candidates.signal_id must reference a signal with status = NORMALIZED (found %)', parent_status;
+    IF TG_OP = 'UPDATE' AND NEW.signal_id IS DISTINCT FROM OLD.signal_id THEN
+        RAISE EXCEPTION 'candidates.signal_id is immutable once set';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        SELECT status INTO parent_status FROM signals WHERE signal_id = NEW.signal_id;
+        IF parent_status IS DISTINCT FROM 'NORMALIZED' THEN
+            RAISE EXCEPTION 'candidates.signal_id must reference a signal with status = NORMALIZED (found %)', parent_status;
+        END IF;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER candidates_require_normalized_signal
-    BEFORE INSERT OR UPDATE OF signal_id ON candidates
+CREATE TRIGGER candidates_signal_id_rules
+    BEFORE INSERT OR UPDATE ON candidates
     FOR EACH ROW
-    EXECUTE FUNCTION enforce_candidate_requires_normalized_signal();
+    EXECUTE FUNCTION enforce_candidate_signal_id_rules();
