@@ -6,8 +6,12 @@ The promotion endpoint: mobius-feed's side of the call into
 (`POST /api/candidates/attest` on the `epicon-api` Render service).
 
 This directory calls out to `kaizencycle/epicon` — it does not implement
-Guard logic itself, and it does not seal or publish anything. It only
-constructs the intent envelope for a `PROMOTED` candidate and records the
-returned verdict.
+Guard logic itself, and it does not seal or publish anything. It constructs
+the intent envelope for a `REVIEWED` candidate attempting promotion, calls
+Guard, and records the returned verdict. The Guard call *is* the
+`REVIEWED → PROMOTED` transition: only a `PASS`/`PASS_WITH_BACKFILL`
+verdict moves the candidate to `PROMOTED` (see
+[`../docs/lifecycle.md`](../docs/lifecycle.md)) — a candidate is never
+`PROMOTED` before Guard has already returned that verdict.
 
 Scaffold only this cycle — no implementation yet.

@@ -118,13 +118,17 @@ mobius-feed and any GitHub PR consumer read an identical contract:
 {
   "status": "PASS",
   "epicon_id": "EPICON_C-390_FEED_nasa-signal-142_v1",
-  "tier": "EP-3",
+  "prTier": "EP-3",
   "justification_hash": "…",
   "errors": [],
   "warnings": [],
   "notices": []
 }
 ```
+
+(`prTier`, not `tier` — matching `validatePullRequest`'s actual field name
+exactly, since the whole point of this example is that the shape is
+identical for both callers.)
 
 Implementation sketch (for whoever picks this up on `kaizencycle/epicon`,
 not built in this cycle):
