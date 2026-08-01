@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/kaizencycle/mobius-feed/schemas/signal.schema.json",
   "title": "Signal",
-  "description": "The canonical, source-agnostic observation object (PR-002). An observation, not an interpretation — carries no pattern or review data. Every source adapter (rss/github/sec/nasa/arxiv) normalizes into exactly this shape. Pattern scoring and review lifecycle live on the separate Candidate object (candidate.schema.json) once a Signal is normalized. See docs/signal-lifecycle.md for the full chain and the Signal.status vs Candidate.review_state split.",
+  "description": "The canonical, source-agnostic observation object (PR-002). An observation, not an interpretation — carries no pattern or review data. Every source adapter (rss/github/sec/nasa/arxiv) normalizes into exactly this shape. Pattern scoring and review lifecycle live on the separate Candidate object (candidate.schema.json) once a Signal is normalized. See docs/signal-lifecycle.md for the full chain and the Signal.status vs Candidate.review_state split. NOTE: `required` describes the complete, persisted Signal returned by a read, not a normalizer's insert payload — the three `readOnly: true` fields below (signal_id, hash, created_at) are populated by Postgres itself and must be omitted when constructing an insert.",
   "version": "2.0.0",
   "type": "object",
   "required": [
@@ -24,7 +24,8 @@
     "signal_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Stable unique identifier for this signal."
+      "readOnly": true,
+      "description": "Stable unique identifier for this signal. DB-assigned default (gen_random_uuid()) — do not set on insert."
     },
     "source": {
       "type": "string",
@@ -59,7 +60,8 @@
     },
     "hash": {
       "type": "string",
-      "description": "SHA-256(SHA-256(source_type) || SHA-256(source) || SHA-256(url)) — the outer digest of the three inner 32-byte digests concatenated as raw bytes, hex-encoded (see docs/signal-lifecycle.md §2 for why a plain delimited join was rejected). The dedup key. Deliberately excludes headline/published_at so a corrected headline or republish timestamp doesn't mint a new signal. Computed by Postgres itself (a GENERATED column), never caller-supplied."
+      "readOnly": true,
+      "description": "SHA-256(SHA-256(source_type) || SHA-256(source) || SHA-256(url)) — the outer digest of the three inner 32-byte digests concatenated as raw bytes, hex-encoded (see docs/signal-lifecycle.md §2 for why a plain delimited join was rejected). The dedup key. Deliberately excludes headline/published_at so a corrected headline or republish timestamp doesn't mint a new signal. A Postgres GENERATED column — omit on insert; the database rejects any caller-supplied value outright, it does not merely ignore it."
     },
     "normalizer_version": {
       "type": "string",
@@ -77,7 +79,8 @@
     "created_at": {
       "type": "string",
       "format": "date-time",
-      "description": "Row creation timestamp."
+      "readOnly": true,
+      "description": "Row creation timestamp. DB-assigned default (now()) — do not set on insert."
     }
   }
 }
