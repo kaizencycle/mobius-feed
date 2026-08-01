@@ -48,11 +48,21 @@ CREATE INDEX signals_status_idx ON signals (status);
 
 -- signals.status is documented as one-way (frozen once NORMALIZED) in
 -- docs/signal-lifecycle.md §3 — enforce that structurally rather than
--- trusting every future caller to respect it.
+-- trusting every future caller to respect it. Also freezes
+-- source_type/source/url once NORMALIZED: those three fields back the
+-- generated `hash` column above, so letting them change post-normalization
+-- would silently change a signal's dedup identity out from under it.
 CREATE OR REPLACE FUNCTION enforce_signal_status_forward() RETURNS trigger AS $$
 BEGIN
     IF OLD.status = 'NORMALIZED' AND NEW.status IS DISTINCT FROM 'NORMALIZED' THEN
         RAISE EXCEPTION 'signals.status is one-way: cannot move from NORMALIZED back to %', NEW.status;
+    END IF;
+    IF OLD.status = 'NORMALIZED' AND (
+        NEW.source_type IS DISTINCT FROM OLD.source_type OR
+        NEW.source      IS DISTINCT FROM OLD.source OR
+        NEW.url         IS DISTINCT FROM OLD.url
+    ) THEN
+        RAISE EXCEPTION 'signals.source_type/source/url are frozen once NORMALIZED (they back the dedup hash)';
     END IF;
     RETURN NEW;
 END;

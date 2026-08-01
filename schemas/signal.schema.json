@@ -59,7 +59,7 @@
     },
     "hash": {
       "type": "string",
-      "description": "SHA-256 of `source_type|source|url` (see docs/signal-lifecycle.md for the exact spec). The dedup key. Deliberately excludes headline/published_at so a corrected headline or republish timestamp doesn't mint a new signal."
+      "description": "SHA-256(SHA-256(source_type) || SHA-256(source) || SHA-256(url)) — the outer digest of the three inner 32-byte digests concatenated as raw bytes, hex-encoded (see docs/signal-lifecycle.md §2 for why a plain delimited join was rejected). The dedup key. Deliberately excludes headline/published_at so a corrected headline or republish timestamp doesn't mint a new signal. Computed by Postgres itself (a GENERATED column), never caller-supplied."
     },
     "normalizer_version": {
       "type": "string",

@@ -9,13 +9,15 @@
 -- ../../docs/signal-lifecycle.md.
 
 -- Always a scored list, never a bare `pattern` field (ADR-001 Decision 4):
--- validates the full shape (array of {name: string, confidence: 0..1}),
--- not just top-level array-ness — a bare string, an empty object, or an
--- out-of-range confidence is rejected here, matching what
--- schemas/candidate.schema.json already requires at the JSON Schema level.
+-- validates the full shape (array of exactly {name: string, confidence:
+-- 0..1}, no other keys), not just top-level array-ness — a bare string, an
+-- empty object, an out-of-range confidence, or an extra key is rejected
+-- here, matching schemas/candidate.schema.json's `additionalProperties:
+-- false` exactly, not just its required-fields shape.
 CREATE OR REPLACE FUNCTION candidate_patterns_valid(patterns jsonb) RETURNS boolean AS $$
 DECLARE
     elem jsonb;
+    k    text;
 BEGIN
     IF jsonb_typeof(patterns) IS DISTINCT FROM 'array' THEN
         RETURN false;
@@ -33,6 +35,11 @@ BEGIN
         IF (elem->>'confidence')::numeric < 0 OR (elem->>'confidence')::numeric > 1 THEN
             RETURN false;
         END IF;
+        FOR k IN SELECT jsonb_object_keys(elem) LOOP
+            IF k NOT IN ('name', 'confidence') THEN
+                RETURN false;
+            END IF;
+        END LOOP;
     END LOOP;
     RETURN true;
 END;

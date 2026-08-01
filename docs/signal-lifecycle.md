@@ -41,7 +41,7 @@ Reality → Signal → Candidate → Review → Promotion → EPICON
 | `hash` | Dedup key — see §2 for the exact spec. A generated column (`GENERATED ALWAYS AS ... STORED`), computed by Postgres from `source_type`/`source`/`url` at write time — not accepted as caller-supplied text, so it can never drift from the inputs it claims to represent. |
 | `normalizer_version` | Version of the *specific adapter* that produced this row. |
 | `schema_version` | Version of *this canonical schema*, distinct from `normalizer_version` — bumped when the Signal table shape itself changes, not when a source's parsing logic changes. Lets historical rows self-declare which schema revision wrote them. |
-| `status` | `NEW \| NORMALIZED` only — see §3. One-way in practice: a `BEFORE UPDATE` trigger (`enforce_signal_status_forward()`) rejects any attempt to move a row back from `NORMALIZED` to `NEW`, so "immutable once NORMALIZED" is enforced, not just documented. |
+| `status` | `NEW \| NORMALIZED` only — see §3. One-way in practice: a `BEFORE UPDATE` trigger (`enforce_signal_status_forward()`) rejects any attempt to move a row back from `NORMALIZED` to `NEW`. The same trigger also freezes `source_type`/`source`/`url` once `NORMALIZED` — those three fields back the generated `hash` above, so allowing them to keep changing after normalization would silently change a signal's dedup identity out from under it. |
 | `created_at` | Row creation time. |
 
 Deliberately small. No `candidate_patterns`, no `review_state` on this
@@ -138,7 +138,7 @@ produced a candidate yet."
 | `candidate_id` | uuid PK. |
 | `signal_id` | FK to `signals`, `UNIQUE` — one candidate per signal. |
 | `review_state` | See §3. |
-| `candidate_patterns` | Scored list, `[{"name", "confidence"}]` — **never** a bare `pattern` field. Enforced at the DB level by `candidate_patterns_valid()`, which checks the *full* shape (array of objects, each with a string `name` and a `confidence` in `[0,1]`) — not just top-level array-ness, so a bare string, an empty object, or an out-of-range score is rejected too, matching `schemas/candidate.schema.json` exactly. |
+| `candidate_patterns` | Scored list, `[{"name", "confidence"}]` — **never** a bare `pattern` field. Enforced at the DB level by `candidate_patterns_valid()`, which checks the *full* shape (array of objects, each with exactly a string `name` and a `confidence` in `[0,1]`, no other keys) — not just top-level array-ness, so a bare string, an empty object, an out-of-range score, or an extra key is rejected too, matching `schemas/candidate.schema.json`'s `additionalProperties: false` exactly, not just its required fields. |
 | `confidence` | Denormalized top-line score (e.g. the best `candidate_patterns` entry), kept only for review-surface sorting/filtering. `candidate_patterns` stays authoritative — this is a projection of it, not an independent judgment. |
 | `review_owner`, `review_notes` | Current-state snapshot, denormalized for fast reads without joining `reviews`. `reviews` (§5) is the authoritative history. |
 | `created_at`, `updated_at` | `updated_at` is trigger-maintained (`set_updated_at()`), bumped on every mutation. |
