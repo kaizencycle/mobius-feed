@@ -89,3 +89,26 @@ CREATE TRIGGER candidates_set_updated_at
     BEFORE UPDATE ON candidates
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at();
+
+-- The FK above only guarantees signal_id references *some* row in signals —
+-- it doesn't enforce the documented 1:1 handoff ("created when a Signal
+-- reaches NORMALIZED"). A cross-table rule can't be expressed as a CHECK
+-- constraint in Postgres, so enforce it the same way as the other
+-- structural rules in this PR: a trigger that looks up the parent and
+-- rejects the write if it isn't NORMALIZED yet.
+CREATE OR REPLACE FUNCTION enforce_candidate_requires_normalized_signal() RETURNS trigger AS $$
+DECLARE
+    parent_status text;
+BEGIN
+    SELECT status INTO parent_status FROM signals WHERE signal_id = NEW.signal_id;
+    IF parent_status IS DISTINCT FROM 'NORMALIZED' THEN
+        RAISE EXCEPTION 'candidates.signal_id must reference a signal with status = NORMALIZED (found %)', parent_status;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER candidates_require_normalized_signal
+    BEFORE INSERT OR UPDATE OF signal_id ON candidates
+    FOR EACH ROW
+    EXECUTE FUNCTION enforce_candidate_requires_normalized_signal();

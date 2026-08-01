@@ -136,7 +136,7 @@ produced a candidate yet."
 | Field | Notes |
 |---|---|
 | `candidate_id` | uuid PK. |
-| `signal_id` | FK to `signals`, `UNIQUE` — one candidate per signal. |
+| `signal_id` | FK to `signals`, `UNIQUE` — one candidate per signal. The FK alone only guarantees the parent row exists, not that it's `NORMALIZED`; `enforce_candidate_requires_normalized_signal()` (a `BEFORE INSERT OR UPDATE OF signal_id` trigger, since Postgres CHECK constraints can't do cross-table lookups) rejects a candidate whose parent signal isn't `NORMALIZED` yet, enforcing the documented 1:1 handoff structurally. |
 | `review_state` | See §3. |
 | `candidate_patterns` | Scored list, `[{"name", "confidence"}]` — **never** a bare `pattern` field. Enforced at the DB level by `candidate_patterns_valid()`, which checks the *full* shape (array of objects, each with exactly a string `name` and a `confidence` in `[0,1]`, no other keys) — not just top-level array-ness, so a bare string, an empty object, an out-of-range score, or an extra key is rejected too, matching `schemas/candidate.schema.json`'s `additionalProperties: false` exactly, not just its required fields. |
 | `confidence` | Denormalized top-line score (e.g. the best `candidate_patterns` entry), kept only for review-surface sorting/filtering. `candidate_patterns` stays authoritative — this is a projection of it, not an independent judgment. |
