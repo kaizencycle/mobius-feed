@@ -67,7 +67,7 @@ Items that couldn't be fully closed across either PR are tracked in
 PR-001  ADR + Scaffold                     ✅
 PR-002  Canonical Signal + Candidate schema ✅
 PR-003  RSS Source Adapters
-PR-004  Normalization Pipeline
+PR-004  Normalization Pipeline            ✅
 PR-005  Duplicate Detection
 PR-006  Pattern Suggestion Engine
 PR-007  Review Workflow

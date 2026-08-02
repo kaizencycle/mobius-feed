@@ -11,4 +11,11 @@ budgeted concern in `classifiers/`. Keeping normalize/classify separate is
 deliberate: folding embedding-based similarity scoring into "normalize" as
 an afterthought was explicitly flagged against in the ADR-001 handoff.
 
-Scaffold only this cycle — no implementation yet.
+## PR-004 — normalization pipeline
+
+`pipeline.ts` claims `status = 'NEW'` signals (`FOR UPDATE SKIP LOCKED`),
+cleans `headline`/`summary` text (`text.ts`), transitions each signal to
+`NORMALIZED`, and inserts the matching `candidates` row in one transaction.
+See `docs/signal-lifecycle.md` §8.
+
+Run via `pnpm normalize` (or `workers/normalize.ts`).

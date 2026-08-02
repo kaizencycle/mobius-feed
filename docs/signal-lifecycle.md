@@ -216,6 +216,85 @@ in `0001_signals.sql`). Every Promotion carries the full raw Guard verdict
 Guard-integration change can be replayed against historical rows without
 losing the original ingestion or attestation record.
 
+## 8. Normalization pipeline (PR-004)
+
+PR-004 bridges source adapters (PR-003) and review (PR-007): it performs
+the `NEW → NORMALIZED` transition on `signals.status` and creates the
+1:1 `candidates` row that transition requires. Implementation lives in
+`normalizers/` (`pipeline.ts`, `text.ts`) and is invoked by
+`workers/normalize.ts`.
+
+### No content-based filtering
+
+`Signal.status` has only two values (`NEW`, `NORMALIZED`). There is no
+`REJECTED` or `INVALID` terminal state for signals that were inspected and
+discarded. If this pipeline filtered out "junk" (empty headline, broken
+URL, obvious spam), those rows would sit at `NEW` forever with no formal
+record of why.
+
+**Decision (PR-004):** every Signal at `status = 'NEW'` is normalized and
+gets exactly one Candidate row. No content judgment happens here. Whether
+a candidate is worth anything belongs to review (PR-007) or duplicate
+detection (PR-005), where `DISMISSED` is already a terminal state with a
+reason attached. Adding signal-level rejection would require a new ADR
+addendum (probably a new `Signal.status` value), not a quiet mid-PR
+exception.
+
+### Selection and concurrency
+
+Workers claim work with:
+
+```sql
+SELECT signal_id, headline, summary
+FROM signals
+WHERE status = 'NEW'
+ORDER BY created_at
+LIMIT $batch_size
+FOR UPDATE SKIP LOCKED
+```
+
+`FOR UPDATE SKIP LOCKED` lets multiple workers (or retries after partial
+failure) run safely: each row is locked to one transaction at a time, and
+contending workers skip rows already claimed rather than blocking. This
+prevents two processes from racing on the `candidates.signal_id` unique
+constraint from PR-002.
+
+### Text normalization (mechanical only)
+
+For each claimed row, before the state transition:
+
+- Strip HTML tags from `headline` and `summary` (RSS feeds regularly leak
+  markup).
+- Collapse whitespace and ensure valid UTF-8.
+- Cap `summary` length at `MAX_SUMMARY_LENGTH` (5000 characters, defined in
+  `sources/rss/constants.ts` — the same constant PR-003 RSS adapters use
+  when inserting signals).
+
+No language detection, scoring, or classification.
+
+### Transaction boundary
+
+Within the same database transaction as the `SELECT ... FOR UPDATE SKIP
+LOCKED` claim, for each claimed Signal:
+
+1. `UPDATE signals SET headline = ..., summary = ..., status = 'NORMALIZED'
+   WHERE signal_id = ... AND status = 'NEW'`
+2. `INSERT INTO candidates (signal_id, review_state, candidate_patterns)
+   VALUES (..., 'NORMALIZED', '[]')`
+
+Both steps commit together. A crash between them must not leave a
+`NORMALIZED` Signal without a Candidate — PR-002's deferred
+`enforce_signal_normalized_requires_candidate()` trigger exists to prevent
+that orphan state at commit time, and this pipeline relies on atomic
+transactions rather than reintroducing it.
+
+### Idempotency
+
+Re-running the pipeline is safe: `WHERE status = 'NEW'` never re-selects
+rows already `NORMALIZED`. `Signal.status` is one-way (enforced by
+`enforce_signal_status_forward()`), so idempotency is structural, not
+best-effort.
+
 ## Out of scope (unchanged from the handoff — flagging, not doing)
 
 RSS/GitHub/NASA/SEC/arXiv polling (PR-003), AI embeddings and the pattern
