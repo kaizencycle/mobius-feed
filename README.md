@@ -44,34 +44,54 @@ not by Notion.
 decisions are recorded. [`docs/ADR-001-reference.md`](docs/ADR-001-reference.md)
 mirrors it for offline reading.
 
-## Status (cycle C-390)
+## Status
 
-ADR-001 is Proposed, blocked on three items — resolved this cycle:
+**PR-001** (C-390) resolved the three items blocking ADR-001 from Proposed →
+Accepted, and scaffolded the repo:
 
 1. [`docs/task-1-epicon-attestation-interface.md`](docs/task-1-epicon-attestation-interface.md) — kaizencycle/epicon attestation interface
 2. [`docs/task-2-epicon-status-vocabulary.md`](docs/task-2-epicon-status-vocabulary.md) — EPICON status vocabulary mapping
 3. [`docs/task-3-hosting-decision.md`](docs/task-3-hosting-decision.md) — hosting target
 
-See [`docs/lifecycle.md`](docs/lifecycle.md) for the candidate state machine
-end to end, from `NEW` through `ATTESTED`.
+**PR-002** implements the canonical Signal and Candidate objects every
+source adapter normalizes into, plus the Postgres schema behind them — see
+[`docs/signal-lifecycle.md`](docs/signal-lifecycle.md) for the full chain,
+and [`docs/lifecycle.md`](docs/lifecycle.md) for the state-machine diagram.
 
-Items that couldn't be fully closed this cycle are tracked in
+Items that couldn't be fully closed across either PR are tracked in
 [`docs/open-questions.md`](docs/open-questions.md).
+
+## Roadmap
+
+```
+PR-001  ADR + Scaffold                     ✅
+PR-002  Canonical Signal + Candidate schema ✅
+PR-003  RSS Source Adapters
+PR-004  Normalization Pipeline
+PR-005  Duplicate Detection
+PR-006  Pattern Suggestion Engine
+PR-007  Review Workflow
+PR-008  EPICON Promotion API
+PR-009  Feed Dashboard
+```
+
+No PR skips a layer.
 
 ## Layout
 
 ```
 sources/          rss/, github/, sec/, nasa/, arxiv/ — poll adapters
-normalizers/       raw source output → frozen Signal schema
+normalizers/       raw source output → canonical Signal schema
 classifiers/       embedding-based pattern-similarity scoring (separate ML component)
 queue/             lifecycle state machine
 review/            human/ATLAS/ZEUS review surface
-db/                Postgres schema + migrations
+db/                Postgres schema + migrations (implemented, PR-002)
 api/                promotion endpoint → kaizencycle/epicon
 workers/           poll/cron jobs (Render Background Workers)
 docs/              design notes
-schemas/           JSON Schemas (frozen per ADR-001)
+schemas/           JSON Schemas — signal.schema.json, candidate.schema.json
 ```
 
-This cycle is scaffold-only: directory structure and design notes, no
-functional implementation. See each directory's README for status.
+`db/` and `schemas/` have real implementations as of PR-002. Everything
+else is still scaffold — directory structure and a README, no functional
+code. See each directory's README for status.

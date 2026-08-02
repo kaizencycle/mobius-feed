@@ -59,22 +59,34 @@ note that raised it.
 
 ## From Task 3 — hosting
 
-8. **Column-level schema for `signals/candidates/reviews/promotions`.**
-   ADR-001 Decision 3 names the four tables; this cycle didn't design their
-   columns. Left for implementation time, informed by the frozen Signal
-   schema (`schemas/signal.schema.json`) and the queue lifecycle
-   (`queue/README.md`).
-   → [task-3-hosting-decision.md](./task-3-hosting-decision.md)
+8. ~~**Column-level schema for `signals/candidates/reviews/promotions`.**~~
+   **Resolved in PR-002** — see
+   [signal-lifecycle.md](./signal-lifecycle.md) and `db/migrations/`.
 9. **One worker process per source vs. multiplexed.** Hosting shape
    (Render Background Worker) is confirmed; whether that's one worker per
    `sources/*` adapter or a single process handling all of them is an
    implementation detail, not a hosting decision, and wasn't resolved here.
    → [task-3-hosting-decision.md](./task-3-hosting-decision.md)
 
+## From PR-002 — canonical Signal + Candidate schema
+
+10. **Hash collision policy for updated content at a stable URL.** The
+    `hash` dedup key (`source_type|source|url`) treats new activity at an
+    already-seen URL (e.g. a GitHub PR gaining commits after its first
+    signal) as a duplicate. Whether that's correct is source-specific;
+    belongs to PR-003 (source adapters) and PR-005 (Duplicate Detection),
+    not decided here.
+    → [signal-lifecycle.md](./signal-lifecycle.md)
+11. **Review consensus rule.** `reviews` is an append-only log of individual
+    ATLAS/ZEUS/Human decisions; nothing in PR-002 computes a consensus rule
+    across them (e.g. does promotion require all three to `APPROVE`, or a
+    subset). Belongs to PR-007 Review Workflow.
+    → [signal-lifecycle.md](./signal-lifecycle.md)
+
 ## Not yet started
 
-- `api/`, `db/`, `workers/`, `normalizers/`, `classifiers/`, `queue/`,
-  `review/` are directory scaffolds with README placeholders only — no
-  functional code this cycle, per the Task 4 instruction to scaffold "once
-  Tasks 1–3 have answers, not before" and the acceptance criteria that no
-  code this cycle writes to Notion, Roadmaps, or seals anything.
+- `api/`, `workers/`, `normalizers/`, `classifiers/`, `review/` are
+  directory scaffolds with README placeholders only — no functional code
+  yet. `db/` now has real migrations (PR-002); ingestion, normalization,
+  classification, review UI, and the promotion API itself remain future
+  PRs per the roadmap in `README.md`.
