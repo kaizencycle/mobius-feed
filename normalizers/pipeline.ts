@@ -86,6 +86,10 @@ export async function processNormalizationBatch(
   pool: Pool,
   batchSize: number,
 ): Promise<NormalizeBatchResult> {
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error(`batchSize must be a positive integer, got ${batchSize}`);
+  }
+
   const client = await pool.connect();
   const signalIds: string[] = [];
 

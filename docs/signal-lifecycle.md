@@ -286,7 +286,10 @@ Both steps commit together. A crash between them must not leave a
 `NORMALIZED` Signal without a Candidate — PR-002's deferred
 `enforce_signal_normalized_requires_candidate()` trigger exists to prevent
 that orphan state at commit time, and this pipeline relies on atomic
-transactions rather than reintroducing it.
+transactions rather than reintroducing it. Candidate deletion is also
+forbidden (`0005_forbid_candidate_delete.sql`) so the invariant cannot be
+broken from the delete side either; lifecycle changes use
+`review_state` instead.
 
 ### Idempotency
 

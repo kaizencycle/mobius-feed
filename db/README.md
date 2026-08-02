@@ -19,6 +19,8 @@ Plain SQL in `migrations/`, applied in numeric order:
   `BEFORE UPDATE/DELETE` triggers, not caller discipline.
 - `0004_promotions.sql` — append-only Guard-attestation attempt log, same
   enforcement.
+- `0005_forbid_candidate_delete.sql` — `BEFORE DELETE` trigger on
+  `candidates` so a `NORMALIZED` signal cannot be orphaned by row deletion.
 
 Each has been applied against a real Postgres 16 instance and exercised
 (constraint violations, append-only triggers, `updated_at` bump) as part of

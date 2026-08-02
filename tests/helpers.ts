@@ -13,19 +13,34 @@ export interface TestSignalInput {
 
 let testPool: pg.Pool | null = null;
 let testDbName: string | null = null;
+let adminConnectionString: string | null = null;
+
+function getAdminConnectionString(): string {
+  return (
+    process.env.PG_ADMIN_URL ??
+    "postgresql://postgres:postgres@localhost:5432/postgres"
+  );
+}
+
+function deriveDatabaseUrl(adminUrl: string, databaseName: string): string {
+  const url = new URL(adminUrl);
+  url.pathname = `/${databaseName}`;
+  return url.toString();
+}
 
 export async function setupTestDatabase(): Promise<pg.Pool> {
-  const adminUrl =
-    process.env.PG_ADMIN_URL ??
-    "postgresql://postgres:postgres@localhost:5432/postgres";
+  adminConnectionString = getAdminConnectionString();
 
-  const admin = new Pool({ connectionString: adminUrl });
+  const admin = new Pool({ connectionString: adminConnectionString });
   testDbName = `mobius_feed_test_${randomUUID().replace(/-/g, "")}`;
 
   await admin.query(`CREATE DATABASE ${testDbName}`);
   await admin.end();
 
-  const connectionString = `postgresql://postgres:postgres@localhost:5432/${testDbName}`;
+  const connectionString = deriveDatabaseUrl(
+    adminConnectionString,
+    testDbName,
+  );
   testPool = new Pool({ connectionString });
 
   const client = await testPool.connect();
@@ -46,9 +61,7 @@ export async function teardownTestDatabase(): Promise<void> {
 
   if (testDbName) {
     const admin = new Pool({
-      connectionString:
-        process.env.PG_ADMIN_URL ??
-        "postgresql://postgres:postgres@localhost:5432/postgres",
+      connectionString: adminConnectionString ?? getAdminConnectionString(),
     });
     await admin.query(
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1`,

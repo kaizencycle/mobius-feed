@@ -11,8 +11,11 @@ import {
 import { MAX_SUMMARY_LENGTH } from "../sources/rss/constants.js";
 import {
   normalizeSignalText,
+  parseBatchSize,
   processNormalizationBatch,
   runNormalizationPipeline,
+  stripHtmlTags,
+  truncateToMaxLength,
 } from "../normalizers/index.js";
 import type pg from "pg";
 
@@ -29,9 +32,45 @@ describe("normalizeSignalText", () => {
     expect(result.summary?.startsWith("Hello world")).toBe(true);
   });
 
+  it("preserves word boundaries across block and line-break markup", () => {
+    expect(stripHtmlTags("Hello<br>world")).toBe("Hello world");
+    expect(
+      normalizeSignalText("Headline", "<p>Alpha</p><p>Beta</p>").summary,
+    ).toBe("Alpha Beta");
+    expect(stripHtmlTags("a < b > c")).toBe("a < b > c");
+  });
+
+  it("truncates on code-point boundaries without splitting surrogate pairs", () => {
+    const prefix = "x".repeat(MAX_SUMMARY_LENGTH - 1);
+    const input = `${prefix}😀extra`;
+    const result = normalizeSignalText("Headline", input);
+
+    expect(result.summary).toBe(`${prefix}😀`);
+    expect(result.summary).not.toContain("\uFFFD");
+  });
+
   it("returns null summary when cleaned summary is empty", () => {
     const result = normalizeSignalText("Headline", "   <br/>  ");
     expect(result.summary).toBeNull();
+  });
+});
+
+describe("truncateToMaxLength", () => {
+  it("does not split emoji at the boundary", () => {
+    expect(truncateToMaxLength("ab😀cd", 3)).toBe("ab😀");
+  });
+});
+
+describe("parseBatchSize", () => {
+  it("defaults to 50 when unset", () => {
+    expect(parseBatchSize(undefined)).toBe(50);
+  });
+
+  it("rejects empty, zero, and non-integer values", () => {
+    expect(() => parseBatchSize("")).toThrow(/positive integer/);
+    expect(() => parseBatchSize("   ")).toThrow(/positive integer/);
+    expect(() => parseBatchSize("0")).toThrow(/positive integer/);
+    expect(() => parseBatchSize("1.5")).toThrow(/positive integer/);
   });
 });
 
@@ -100,6 +139,22 @@ describe("normalization pipeline", () => {
     expect(candidate?.review_state).toBe("NORMALIZED");
   });
 
+  it("forbids candidate deletion to preserve the 1:1 invariant", async () => {
+    const signalId = await insertNewSignal(pool, { headline: "No delete" });
+    await runNormalizationPipeline(pool, { maxBatches: 1, batchSize: 1 });
+
+    const { rows } = await pool.query<{ candidate_id: string }>(
+      "SELECT candidate_id FROM candidates WHERE signal_id = $1",
+      [signalId],
+    );
+    const candidateId = rows[0]?.candidate_id;
+    expect(candidateId).toBeDefined();
+
+    await expect(
+      pool.query("DELETE FROM candidates WHERE candidate_id = $1", [candidateId]),
+    ).rejects.toThrow(/cannot be deleted/);
+  });
+
   it("handles concurrent workers without duplicate candidates", async () => {
     const ids: string[] = [];
     for (let i = 0; i < 20; i += 1) {
@@ -135,5 +190,11 @@ describe("normalization pipeline", () => {
       );
       expect(rows[0]?.count).toBe(1);
     }
+  });
+
+  it("rejects non-positive batch sizes at the pipeline layer", async () => {
+    await expect(processNormalizationBatch(pool, 0)).rejects.toThrow(
+      /positive integer/,
+    );
   });
 });

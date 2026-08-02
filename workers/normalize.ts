@@ -1,9 +1,10 @@
 import { getPool, closePool } from "../db/pool.js";
+import { parseBatchSize } from "../normalizers/batch-size.js";
 import { runNormalizationPipeline } from "../normalizers/pipeline.js";
 
 async function main(): Promise<void> {
   const pool = getPool();
-  const batchSize = Number(process.env.NORMALIZE_BATCH_SIZE ?? "50");
+  const batchSize = parseBatchSize(process.env.NORMALIZE_BATCH_SIZE);
 
   try {
     const result = await runNormalizationPipeline(pool, { batchSize });

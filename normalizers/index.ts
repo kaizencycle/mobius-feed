@@ -1,4 +1,5 @@
-export { normalizeSignalText, stripHtmlTags, collapseWhitespace, ensureUtf8 } from "./text.js";
+export { normalizeSignalText, stripHtmlTags, collapseWhitespace, ensureUtf8, truncateToMaxLength } from "./text.js";
+export { parseBatchSize } from "./batch-size.js";
 export {
   claimNewSignals,
   normalizeClaimedSignal,
