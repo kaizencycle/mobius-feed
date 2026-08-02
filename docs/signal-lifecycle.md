@@ -274,22 +274,24 @@ No language detection, scoring, or classification.
 
 ### Transaction boundary
 
-Within the same database transaction as the `SELECT ... FOR UPDATE SKIP
-LOCKED` claim, for each claimed Signal:
+Each claimed Signal is processed in its **own** database transaction (not
+one transaction for the whole batch). Within that transaction:
 
-1. `UPDATE signals SET headline = ..., summary = ..., status = 'NORMALIZED'
+1. `SELECT ... FOR UPDATE SKIP LOCKED` claims one `NEW` row.
+2. `UPDATE signals SET headline = ..., summary = ..., status = 'NORMALIZED'
    WHERE signal_id = ... AND status = 'NEW'`
-2. `INSERT INTO candidates (signal_id, review_state, candidate_patterns)
+3. `INSERT INTO candidates (signal_id, review_state, candidate_patterns)
    VALUES (..., 'NORMALIZED', '[]')`
 
-Both steps commit together. A crash between them must not leave a
-`NORMALIZED` Signal without a Candidate — PR-002's deferred
+Steps 2 and 3 commit together for that signal. A per-row failure rolls back
+only that signal's transaction; the pipeline skips the failed row for the
+rest of the batch so a poison row cannot block younger `NEW` signals behind
+it. A crash between steps 2 and 3 must not leave a `NORMALIZED` Signal
+without a Candidate — PR-002's deferred
 `enforce_signal_normalized_requires_candidate()` trigger exists to prevent
-that orphan state at commit time, and this pipeline relies on atomic
-transactions rather than reintroducing it. Candidate deletion is also
-forbidden (`0005_forbid_candidate_delete.sql`) so the invariant cannot be
-broken from the delete side either; lifecycle changes use
-`review_state` instead.
+that orphan state at commit time. Candidate deletion is also forbidden
+(`0005_forbid_candidate_delete.sql`) so the invariant cannot be broken
+from the delete side either; lifecycle changes use `review_state` instead.
 
 ### Idempotency
 

@@ -13,6 +13,7 @@ async function main(): Promise<void> {
         ok: true,
         processed: result.processed,
         signal_ids: result.signal_ids,
+        failed_signal_ids: result.failed_signal_ids,
       }),
     );
   } finally {

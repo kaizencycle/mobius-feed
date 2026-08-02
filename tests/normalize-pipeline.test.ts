@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   countCandidates,
   countSignalsByStatus,
@@ -17,6 +17,7 @@ import {
   stripHtmlTags,
   truncateToMaxLength,
 } from "../normalizers/index.js";
+import * as normalizeSignal from "../normalizers/normalize-signal.js";
 import type pg from "pg";
 
 describe("normalizeSignalText", () => {
@@ -83,6 +84,10 @@ describe("normalization pipeline", () => {
 
   afterAll(async () => {
     await teardownTestDatabase();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("transitions NEW signals to NORMALIZED and creates exactly one candidate", async () => {
@@ -196,5 +201,38 @@ describe("normalization pipeline", () => {
     await expect(processNormalizationBatch(pool, 0)).rejects.toThrow(
       /positive integer/,
     );
+  });
+
+  it("does not let a poison row roll back other signals in the same batch", async () => {
+    const poisonId = await insertNewSignal(pool, {
+      headline: "Poison",
+      url: "https://example.com/poison-row",
+    });
+    const goodId = await insertNewSignal(pool, {
+      headline: "Good",
+      url: "https://example.com/good-row",
+    });
+
+    const originalNormalize = normalizeSignal.normalizeClaimedSignal;
+    vi.spyOn(normalizeSignal, "normalizeClaimedSignal").mockImplementation(
+      async (client, signal) => {
+        if (signal.signal_id === poisonId) {
+          throw new Error("simulated poison row");
+        }
+        return originalNormalize(client, signal);
+      },
+    );
+
+    const result = await processNormalizationBatch(pool, 10);
+
+    expect(result.failed_signal_ids).toContain(poisonId);
+    expect(result.signal_ids).toContain(goodId);
+    expect(result.signal_ids).not.toContain(poisonId);
+
+    const poison = await getSignal(pool, poisonId);
+    expect(poison?.status).toBe("NEW");
+
+    const good = await getSignal(pool, goodId);
+    expect(good?.status).toBe("NORMALIZED");
   });
 });

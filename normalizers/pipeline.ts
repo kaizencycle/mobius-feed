@@ -1,39 +1,15 @@
 import type { Pool, PoolClient } from "pg";
-import { normalizeSignalText } from "./text.js";
+import { normalizeClaimedSignal } from "./normalize-signal.js";
+import type { NewSignalRow } from "./types.js";
 
-export interface NewSignalRow {
-  signal_id: string;
-  headline: string;
-  summary: string | null;
-}
+export type { NewSignalRow } from "./types.js";
 
 export interface NormalizeBatchResult {
   processed: number;
   signal_ids: string[];
+  /** Signals that failed normalization in this batch and were skipped. */
+  failed_signal_ids: string[];
 }
-
-const CLAIM_NEW_SIGNALS_SQL = `
-  SELECT signal_id, headline, summary
-  FROM signals
-  WHERE status = 'NEW'
-  ORDER BY created_at
-  LIMIT $1
-  FOR UPDATE SKIP LOCKED
-`;
-
-const UPDATE_SIGNAL_NORMALIZED_SQL = `
-  UPDATE signals
-  SET headline = $2,
-      summary = $3,
-      status = 'NORMALIZED'
-  WHERE signal_id = $1
-    AND status = 'NEW'
-`;
-
-const INSERT_CANDIDATE_SQL = `
-  INSERT INTO candidates (signal_id, review_state, candidate_patterns)
-  VALUES ($1, 'NORMALIZED', '[]'::jsonb)
-`;
 
 /**
  * Claim up to `batchSize` NEW signals with row-level locks.
@@ -43,44 +19,44 @@ const INSERT_CANDIDATE_SQL = `
 export async function claimNewSignals(
   client: PoolClient,
   batchSize: number,
+  excludeSignalIds: readonly string[] = [],
 ): Promise<NewSignalRow[]> {
-  const { rows } = await client.query<NewSignalRow>(CLAIM_NEW_SIGNALS_SQL, [
-    batchSize,
-  ]);
+  if (batchSize < 1) {
+    return [];
+  }
+
+  if (excludeSignalIds.length === 0) {
+    const { rows } = await client.query<NewSignalRow>(
+      `SELECT signal_id, headline, summary
+       FROM signals
+       WHERE status = 'NEW'
+       ORDER BY created_at
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED`,
+      [batchSize],
+    );
+    return rows;
+  }
+
+  const { rows } = await client.query<NewSignalRow>(
+    `SELECT signal_id, headline, summary
+     FROM signals
+     WHERE status = 'NEW'
+       AND NOT (signal_id = ANY($2::uuid[]))
+     ORDER BY created_at
+     LIMIT $1
+     FOR UPDATE SKIP LOCKED`,
+    [batchSize, excludeSignalIds],
+  );
   return rows;
 }
 
-/**
- * Normalize one claimed signal and create its Candidate.
- * Caller must hold the row lock from claimNewSignals in the same transaction.
- */
-export async function normalizeClaimedSignal(
-  client: PoolClient,
-  signal: NewSignalRow,
-): Promise<void> {
-  const { headline, summary } = normalizeSignalText(
-    signal.headline,
-    signal.summary,
-  );
-
-  const updated = await client.query(UPDATE_SIGNAL_NORMALIZED_SQL, [
-    signal.signal_id,
-    headline,
-    summary,
-  ]);
-
-  if (updated.rowCount !== 1) {
-    throw new Error(
-      `Expected to normalize signal ${signal.signal_id}, updated ${updated.rowCount ?? 0} rows`,
-    );
-  }
-
-  await client.query(INSERT_CANDIDATE_SQL, [signal.signal_id]);
-}
+export { normalizeClaimedSignal } from "./normalize-signal.js";
 
 /**
- * Claim and normalize up to `batchSize` NEW signals in one transaction.
- * Status transition and Candidate insert for each signal are atomic with the batch commit.
+ * Normalize up to `batchSize` NEW signals, one transaction per signal.
+ * A poison row (persistent per-row failure) is skipped for the rest of this
+ * batch so later signals are not blocked by an all-or-nothing rollback.
  */
 export async function processNormalizationBatch(
   pool: Pool,
@@ -90,27 +66,46 @@ export async function processNormalizationBatch(
     throw new Error(`batchSize must be a positive integer, got ${batchSize}`);
   }
 
-  const client = await pool.connect();
   const signalIds: string[] = [];
+  const failedSignalIds: string[] = [];
+  const skipped = new Set<string>();
 
-  try {
-    await client.query("BEGIN");
-    const claimed = await claimNewSignals(client, batchSize);
+  while (signalIds.length + failedSignalIds.length < batchSize) {
+    const client = await pool.connect();
 
-    for (const signal of claimed) {
-      await normalizeClaimedSignal(client, signal);
-      signalIds.push(signal.signal_id);
+    try {
+      await client.query("BEGIN");
+      const claimed = await claimNewSignals(client, 1, [...skipped]);
+
+      if (claimed.length === 0) {
+        await client.query("ROLLBACK");
+        break;
+      }
+
+      const signal = claimed[0]!;
+
+      try {
+        await normalizeClaimedSignal(client, signal);
+        await client.query("COMMIT");
+        signalIds.push(signal.signal_id);
+      } catch {
+        await client.query("ROLLBACK");
+        skipped.add(signal.signal_id);
+        failedSignalIds.push(signal.signal_id);
+      }
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
   }
 
-  return { processed: signalIds.length, signal_ids: signalIds };
+  return {
+    processed: signalIds.length,
+    signal_ids: signalIds,
+    failed_signal_ids: failedSignalIds,
+  };
 }
 
 /**
@@ -124,11 +119,13 @@ export async function runNormalizationPipeline(
   const maxBatches = options.maxBatches ?? Number.POSITIVE_INFINITY;
 
   const allIds: string[] = [];
+  const allFailedIds: string[] = [];
   let batches = 0;
 
   while (batches < maxBatches) {
     const result = await processNormalizationBatch(pool, batchSize);
     allIds.push(...result.signal_ids);
+    allFailedIds.push(...result.failed_signal_ids);
     batches += 1;
 
     if (result.processed === 0) {
@@ -136,5 +133,9 @@ export async function runNormalizationPipeline(
     }
   }
 
-  return { processed: allIds.length, signal_ids: allIds };
+  return {
+    processed: allIds.length,
+    signal_ids: allIds,
+    failed_signal_ids: allFailedIds,
+  };
 }
