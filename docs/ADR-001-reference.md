@@ -101,6 +101,13 @@ mobius-feed DOES NOT:
 without losing original ingestion history. See `schemas/signal.schema.json`
 for the versioned JSON Schema.
 
+> **PR-002 addendum (not a change to the ADR text above, which mirrors
+> Notion verbatim):** the sketch above predates the two-object split PR-002
+> formalizes. `candidate_patterns` and `review_state` no longer live on the
+> Signal object — they moved to a separate Candidate object. See
+> [`signal-lifecycle.md`](./signal-lifecycle.md) for the current canonical
+> shapes and why the split happened.
+
 ## Consequence
 
 Once sealed, this ADR governs: mobius-feed does not implement its own EPICON
